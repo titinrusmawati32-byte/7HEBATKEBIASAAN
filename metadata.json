@@ -1,0 +1,8 @@
+{
+  "name": "Remix Remix Remix Remix Remix Jurnal 7 Kebiasaan Anak Indonesia Hebat",
+  "description": "Aplikasi Jurnal Karakter 7 Kebiasaan Anak Indonesia Hebat berbasis misi interaktif untuk Siswa, Guru, dan Kepala Sekolah dengan integrasi database spreadsheet.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

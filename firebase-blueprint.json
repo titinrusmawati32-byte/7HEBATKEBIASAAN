@@ -1,0 +1,192 @@
+{
+  "entities": {
+    "HabitEntry": {
+      "title": "HabitEntry",
+      "description": "Catatan pengisian misi 7 Kebiasaan Anak Indonesia Hebat oleh siswa",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "ID unik entri habit",
+          "maxLength": 128
+        },
+        "habitId": {
+          "type": "number",
+          "description": "Nomor urut kebiasaan 1 sampai 7"
+        },
+        "tanggal": {
+          "type": "string",
+          "description": "Tanggal misi (format YYYY-MM-DD)",
+          "maxLength": 10
+        },
+        "waktuSubmit": {
+          "type": "string",
+          "description": "Waktu pengiriman misi (format HH:mm:ss)",
+          "maxLength": 8
+        },
+        "username": {
+          "type": "string",
+          "description": "NISN atau username siswa pelapor",
+          "maxLength": 64
+        },
+        "namaSiswa": {
+          "type": "string",
+          "description": "Nama lengkap siswa pelapor",
+          "maxLength": 128
+        },
+        "kelas": {
+          "type": "string",
+          "description": "Kelas siswa",
+          "maxLength": 32
+        },
+        "detail": {
+          "type": "string",
+          "description": "Catatan detail misi atau jam bangun",
+          "maxLength": 1000
+        },
+        "fotoBukti": {
+          "type": "string",
+          "description": "URL atau data bukti dokumentasi misi",
+          "maxLength": 204800
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Timestamp ISO waktu penyimpanan"
+        }
+      },
+      "required": ["id", "habitId", "tanggal", "username", "namaSiswa", "kelas"]
+    },
+    "Siswa": {
+      "title": "Siswa",
+      "description": "Data identitas profil siswa",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "ID unik dokumen siswa",
+          "maxLength": 128
+        },
+        "nisn": {
+          "type": "string",
+          "description": "Nomor Induk Siswa Nasional",
+          "maxLength": 32
+        },
+        "nama": {
+          "type": "string",
+          "description": "Nama lengkap siswa",
+          "maxLength": 128
+        },
+        "panggilan": {
+          "type": "string",
+          "description": "Nama panggilan siswa",
+          "maxLength": 64
+        },
+        "kelas": {
+          "type": "string",
+          "description": "Kelas rombel siswa",
+          "maxLength": 32
+        },
+        "tahunAjaran": {
+          "type": "string",
+          "description": "Tahun ajaran aktif",
+          "maxLength": 32
+        }
+      },
+      "required": ["id", "nisn", "nama", "kelas"]
+    },
+    "Guru": {
+      "title": "Guru",
+      "description": "Data profil dan materi guru kelas",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "ID unik dokumen guru",
+          "maxLength": 128
+        },
+        "username": {
+          "type": "string",
+          "description": "NIP atau username guru",
+          "maxLength": 64
+        },
+        "nama": {
+          "type": "string",
+          "description": "Nama lengkap guru beserta gelar",
+          "maxLength": 128
+        },
+        "kelas": {
+          "type": "string",
+          "description": "Kelas yang diampu atau jabatan",
+          "maxLength": 32
+        },
+        "linkYoutube": {
+          "type": "string",
+          "description": "Tautan video materi pengantar",
+          "maxLength": 512
+        },
+        "kontenKuisJson": {
+          "type": "string",
+          "description": "JSON string materi dan butir kuis per kebiasaan",
+          "maxLength": 65536
+        },
+        "tempatCetak": {
+          "type": "string",
+          "description": "Kota lokasi penandatanganan piagam",
+          "maxLength": 64
+        },
+        "tanggalCetak": {
+          "type": "string",
+          "description": "Tanggal cetak piagam penghargaan",
+          "maxLength": 64
+        }
+      },
+      "required": ["id", "username", "nama", "kelas"]
+    },
+    "Pengaturan": {
+      "title": "Pengaturan",
+      "description": "Konfigurasi umum identitas sekolah",
+      "type": "object",
+      "properties": {
+        "namaSekolah": {
+          "type": "string",
+          "description": "Nama resmi sekolah dasar",
+          "maxLength": 150
+        },
+        "logoSekolah": {
+          "type": "string",
+          "description": "URL logo sekolah",
+          "maxLength": 2048
+        },
+        "linkYoutube": {
+          "type": "string",
+          "description": "Tautan video profil atau pengantar",
+          "maxLength": 512
+        },
+        "usernameKepsek": {
+          "type": "string",
+          "description": "Username kepala sekolah",
+          "maxLength": 64
+        }
+      },
+      "required": ["namaSekolah"]
+    }
+  },
+  "firestore": {
+    "/habits/{habitId}": {
+      "schema": "HabitEntry",
+      "description": "Koleksi pelaporan misi harian siswa"
+    },
+    "/siswa/{siswaId}": {
+      "schema": "Siswa",
+      "description": "Koleksi direktori siswa terdaftar"
+    },
+    "/guru/{guruId}": {
+      "schema": "Guru",
+      "description": "Koleksi data guru dan modul pengajaran"
+    },
+    "/pengaturan/{configId}": {
+      "schema": "Pengaturan",
+      "description": "Koleksi pengaturan identitas aplikasi sekolah"
+    }
+  }
+}

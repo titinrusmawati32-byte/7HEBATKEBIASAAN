@@ -1,0 +1,92 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default-deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidHabit(data) {
+      return data.keys().hasAll(['id', 'habitId', 'tanggal', 'username', 'namaSiswa', 'kelas']) &&
+             data.id is string && data.id.size() <= 128 &&
+             (data.habitId is int || data.habitId is float) && data.habitId >= 1 && data.habitId <= 7 &&
+             data.tanggal is string && data.tanggal.size() <= 10 &&
+             data.username is string && data.username.size() <= 64 &&
+             data.namaSiswa is string && data.namaSiswa.size() <= 128 &&
+             data.kelas is string && data.kelas.size() <= 32;
+    }
+
+    function isValidSiswa(data) {
+      return data.keys().hasAll(['id', 'nisn', 'nama', 'kelas']) &&
+             data.id is string && data.id.size() <= 128 &&
+             data.nisn is string && data.nisn.size() <= 32 &&
+             data.nama is string && data.nama.size() <= 128 &&
+             data.kelas is string && data.kelas.size() <= 32;
+    }
+
+    function isValidGuru(data) {
+      return data.keys().hasAll(['id', 'username', 'nama', 'kelas']) &&
+             data.id is string && data.id.size() <= 128 &&
+             data.username is string && data.username.size() <= 64 &&
+             data.nama is string && data.nama.size() <= 128 &&
+             data.kelas is string && data.kelas.size() <= 32;
+    }
+
+    function isValidPengaturan(data) {
+      return data.keys().hasAll(['namaSekolah']) &&
+             data.namaSekolah is string && data.namaSekolah.size() <= 150;
+    }
+
+    // Connection testing
+    match /test/{docId} {
+      allow get: if isValidId(docId);
+      allow write: if false;
+    }
+
+    // Habit entries collection
+    match /habits/{habitEntryId} {
+      allow get, list: if true;
+      allow create: if isValidId(habitEntryId) && isValidHabit(incoming());
+      allow update: if isValidId(habitEntryId) && isValidHabit(incoming());
+      allow delete: if isValidId(habitEntryId);
+    }
+
+    // Siswa collection
+    match /siswa/{siswaId} {
+      allow get, list: if true;
+      allow create: if isValidId(siswaId) && isValidSiswa(incoming());
+      allow update: if isValidId(siswaId) && isValidSiswa(incoming());
+      allow delete: if isValidId(siswaId);
+    }
+
+    // Guru collection
+    match /guru/{guruId} {
+      allow get, list: if true;
+      allow create: if isValidId(guruId) && isValidGuru(incoming());
+      allow update: if isValidId(guruId) && isValidGuru(incoming());
+      allow delete: if isValidId(guruId);
+    }
+
+    // Pengaturan collection
+    match /pengaturan/{configId} {
+      allow get, list: if true;
+      allow create: if isValidId(configId) && isValidPengaturan(incoming());
+      allow update: if isValidId(configId) && isValidPengaturan(incoming());
+      allow delete: if false;
+    }
+  }
+}
