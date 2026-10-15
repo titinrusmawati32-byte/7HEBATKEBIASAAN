@@ -267,19 +267,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
               </div>
             )}
 
-            {/* Helper for default Kepsek / Admin account */}
-            {selectedRole === 'Kepala Sekolah' && (
-              <div className="mb-2.5 p-2 bg-amber-50/80 border border-amber-200 text-amber-900 rounded-xl text-[11px]">
-                <p className="font-bold flex items-center gap-1">
-                  <i className="fa-solid fa-key text-amber-600 text-xs"></i>
-                  Info Login Pertama Kepala Sekolah / Admin
-                </p>
-                <p className="text-[10px] text-amber-800 mt-0.5">
-                  Gunakan Username: <span className="font-bold underline">admin</span> dan Kata Sandi: <span className="font-bold underline">admin123</span>
-                </p>
-              </div>
-            )}
-
             {/* Credential Input Fields */}
             <form onSubmit={handleLogin} className="space-y-2.5">
               {isRegisterAdmin && selectedRole === 'Kepala Sekolah' && (
