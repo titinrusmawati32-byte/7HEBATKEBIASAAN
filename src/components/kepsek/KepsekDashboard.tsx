@@ -217,6 +217,9 @@ export const KepsekDashboard: React.FC<KepsekDashboardProps> = ({ session, onRef
 
   useEffect(() => {
     loadData();
+    StorageService.syncCloudConfig().then(() => {
+      loadData();
+    });
   }, [selectedDate, selectedKelasFilter]);
 
   // Dynamic analytics strictly from real database

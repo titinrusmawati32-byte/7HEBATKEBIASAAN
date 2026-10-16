@@ -215,6 +215,9 @@ export const GuruDashboard: React.FC<GuruDashboardProps> = ({ session, onRefresh
 
   useEffect(() => {
     loadAll();
+    StorageService.syncCloudConfig().then(() => {
+      loadAll();
+    });
   }, [session.kelas, selectedDate]);
 
   useEffect(() => {

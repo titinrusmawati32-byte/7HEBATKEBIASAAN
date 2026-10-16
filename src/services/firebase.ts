@@ -89,8 +89,9 @@ export class FirebaseService {
    * Simpan atau perbarui entri kebiasaan siswa di Firestore
    */
   static async saveHabitEntry(habitId: number, item: HabitItemData): Promise<void> {
-    const rawDocId = item.id || `h${habitId}_${item.username}_${item.tanggal}`;
-    const docId = rawDocId.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const cleanUser = String(item.username || '').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+    const cleanDate = String(item.tanggal || '').trim();
+    const docId = `h${habitId}_${cleanUser}_${cleanDate}`;
     const path = `habits/${docId}`;
     try {
       await setDoc(doc(db, 'habits', docId), {
@@ -254,10 +255,15 @@ export class FirebaseService {
    * Hapus entri kebiasaan secara permanen dari Firestore
    */
   static async deleteHabitEntry(habitId: number, username: string, tanggal: string, entryId?: string): Promise<void> {
-    const docId = entryId || `h${habitId}_${username}_${tanggal}`;
+    const cleanUser = String(username || '').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+    const cleanDate = String(tanggal || '').trim();
+    const docId = `h${habitId}_${cleanUser}_${cleanDate}`;
     const path = `habits/${docId}`;
     try {
       await deleteDoc(doc(db, 'habits', docId));
+      if (entryId && entryId !== docId) {
+        await deleteDoc(doc(db, 'habits', entryId.replace(/[^a-zA-Z0-9_-]/g, '_'))).catch(() => {});
+      }
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, path);
     }

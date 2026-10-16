@@ -223,6 +223,50 @@ export class StorageService {
       if (remoteSiswa && remoteSiswa.length > 0) {
         localStorage.setItem(STORAGE_KEYS.DATA_SISWA, JSON.stringify(remoteSiswa));
       }
+
+      // 4. Sinkronkan seluruh data Habit / Jurnal (Misi 1..7) dari Cloud Firestore
+      // Ini memastikan saat login dengan username yang sama di perangkat berbeda, isian tidak hilang / ter-reset!
+      const remoteHabits = await FirebaseService.getAllHabitsFromFirestore();
+      if (remoteHabits && remoteHabits.length > 0) {
+        const habitsGrouped: Record<number, HabitItemData[]> = {
+          1: [], 2: [], 3: [], 4: [], 5: [], 6: [], 7: []
+        };
+
+        remoteHabits.forEach(h => {
+          const hid = Number(h.habitId || 1);
+          if (habitsGrouped[hid]) {
+            habitsGrouped[hid].push({
+              id: h.id,
+              tanggal: h.tanggal,
+              waktuSubmit: h.waktuSubmit,
+              username: h.username,
+              namaSiswa: h.namaSiswa,
+              kelas: h.kelas,
+              detail: h.detail,
+              fotoBukti: h.fotoBukti
+            });
+          }
+        });
+
+        for (let i = 1; i <= 7; i++) {
+          const key = STORAGE_KEYS.HABIT_PREFIX + i;
+          const localRaw = localStorage.getItem(key);
+          const localItems: HabitItemData[] = localRaw ? JSON.parse(localRaw) : [];
+
+          // Gabungkan item unik berdasarkan username_tanggal
+          const mergedMap = new Map<string, HabitItemData>();
+          localItems.forEach(item => {
+            const dedupeKey = `${(item.username || '').trim().toLowerCase()}___${item.tanggal}`;
+            mergedMap.set(dedupeKey, item);
+          });
+          habitsGrouped[i].forEach(item => {
+            const dedupeKey = `${(item.username || '').trim().toLowerCase()}___${item.tanggal}`;
+            mergedMap.set(dedupeKey, item);
+          });
+
+          localStorage.setItem(key, JSON.stringify(Array.from(mergedMap.values())));
+        }
+      }
     } catch (e) {
       console.warn('Sync cloud config warning:', e);
     }

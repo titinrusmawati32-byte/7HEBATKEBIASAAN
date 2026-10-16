@@ -144,7 +144,13 @@ export const SiswaDashboard: React.FC<SiswaDashboardProps> = ({
   };
 
   useEffect(() => {
+    // 1. Tampilkan data dari memori lokal seketika (tanpa lag)
     loadData();
+
+    // 2. Sinkronkan dengan Cloud Firestore agar isian dari perangkat/HP lain langsung tampil
+    StorageService.syncCloudConfig().then(() => {
+      loadData();
+    });
   }, [session.username]);
 
   // Compute Rank Level based on completed habits today

@@ -47,6 +47,10 @@ export default function App() {
     if (window.history && window.history.pushState) {
       window.history.pushState({ auth: true, role: userSession.role }, '', window.location.pathname);
     }
+    // Sinkronkan seluruh data dari Cloud Firestore ke perangkat baru
+    StorageService.syncCloudConfig().then(() => {
+      setRefreshKey(prev => prev + 1);
+    });
   };
 
   const handleLogout = async () => {
