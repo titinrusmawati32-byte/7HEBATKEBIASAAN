@@ -249,60 +249,83 @@ export const HabitSubmitModal: React.FC<HabitSubmitModalProps> = ({
           </div>
 
           {/* Header Content */}
-          <div className="relative z-10 pr-12 max-w-[75%] sm:max-w-[70%]">
-            <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full ${theme.badgeBg} border text-[11px] font-black uppercase tracking-wider mb-1.5`}>
-              <i className="fa-solid fa-star text-amber-500 text-[10px]"></i>
-              <span>MISI #{habit.number}: {habit.badgeText || 'Karakter Emas'}</span>
+          <div className="relative z-10 pr-10 max-w-[70%] sm:max-w-[72%]">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="relative flex-shrink-0">
+                <span className="absolute -top-1 -left-1 w-2 h-1 bg-amber-400 rounded-full -rotate-45"></span>
+                <span className="absolute -top-1.5 left-3 w-1 h-2 bg-amber-400 rounded-full"></span>
+                <span className="absolute top-2 -left-2 w-2 h-1 bg-amber-400 rounded-full"></span>
+                <div className="w-11 h-11 sm:w-12 sm:h-12 bg-gradient-to-b from-[#2B8CFF] to-[#166CEB] rounded-2xl flex items-center justify-center shadow-md shadow-blue-500/30 text-white font-black text-lg sm:text-xl tracking-tight border-2 border-white/60">
+                  #{habit.number}
+                </div>
+              </div>
+              <div>
+                <h1 className="text-lg sm:text-[23px] font-black text-[#143257] tracking-tight leading-tight">
+                  Misi {habit.number}: {habit.shortTitle || habit.title}
+                </h1>
+              </div>
             </div>
-            <h2 className="text-xl sm:text-2xl font-black text-slate-900 leading-tight">
-              {habit.shortTitle || habit.title}
-            </h2>
-            <p className="text-xs sm:text-sm text-slate-600 font-bold mt-1 line-clamp-2">
+            <p className="text-[#204978] text-xs sm:text-[13px] font-bold leading-snug">
               {habit.quote}
             </p>
           </div>
         </header>
 
-        {/* BEGIN: TabButtons */}
-        <div className="flex border-b border-slate-200 mb-4 gap-2">
+        {/* BEGIN: TabButtons (Two Columns Pill Grid) */}
+        <nav aria-label="Tab Misi" className="grid grid-cols-2 gap-2.5 sm:gap-3 mb-4">
           <button
             type="button"
             onClick={() => setActiveTab('lapor')}
-            className={`pb-3 px-3 font-extrabold text-xs sm:text-sm border-b-2 transition-all flex items-center gap-2 cursor-pointer ${
+            className={`py-3 px-3 sm:px-4 rounded-2xl flex items-center justify-center gap-2 sm:gap-2.5 font-bold text-xs sm:text-sm tracking-wide transition active:scale-[0.98] cursor-pointer ${
               activeTab === 'lapor'
-                ? 'border-[#00BA63] text-[#00BA63]'
-                : 'border-transparent text-slate-400 hover:text-slate-600'
+                ? 'btn-glossy bg-gradient-to-r from-[#00BA63] to-[#04D171] text-white shadow-btn-green'
+                : 'bg-[#F1F4F9] hover:bg-slate-200/80 text-[#67798F]'
             }`}
           >
-            <FileText className="w-4 h-4" />
-            <span>Lapor Misi Hari Ini</span>
+            <FileText className="w-4 h-4 flex-shrink-0" />
+            <span className="truncate">Lapor Misi Hari Ini</span>
           </button>
           <button
             type="button"
             onClick={() => setActiveTab('materi')}
-            className={`pb-3 px-3 font-extrabold text-xs sm:text-sm border-b-2 transition-all flex items-center gap-2 cursor-pointer ${
+            className={`py-3 px-3 sm:px-4 rounded-2xl flex items-center justify-center gap-2 sm:gap-2.5 font-bold text-xs sm:text-sm tracking-wide transition active:scale-[0.98] cursor-pointer ${
               activeTab === 'materi'
-                ? 'border-[#00BA63] text-[#00BA63]'
-                : 'border-transparent text-slate-400 hover:text-slate-600'
+                ? 'btn-glossy bg-gradient-to-r from-[#00BA63] to-[#04D171] text-white shadow-btn-green'
+                : 'bg-[#F1F4F9] hover:bg-slate-200/80 text-[#67798F]'
             }`}
           >
-            <HelpCircle className="w-4 h-4" />
-            <span>Materi & Kuis</span>
+            <HelpCircle className="w-4 h-4 flex-shrink-0" />
+            <span className="truncate">Materi & Kuis Interaktif</span>
             {materiData?.kuisAktif && (
               <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span>
             )}
           </button>
-        </div>
+        </nav>
 
         {/* Modal Scrollable Body */}
         <div className="flex-1 overflow-y-auto custom-scroll pr-1 space-y-4">
           {activeTab === 'lapor' && (
             <form onSubmit={handleSubmit} className="space-y-4">
-              {/* Petunjuk Box */}
-              <div className="p-3.5 bg-[#F0F8FF] rounded-2xl border border-sky-100 text-[#18385C] text-xs font-medium leading-relaxed">
-                <span className="font-black text-slate-900">Petunjuk Misi: </span>
-                {habit.description}
-              </div>
+              {/* Petunjuk Guidance Notice Card */}
+              <section className="bg-[#EDF7FF] rounded-2xl p-3.5 sm:p-4 border border-[#D5EBFC] flex items-start gap-3 sm:gap-3.5 shadow-xs">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 flex-shrink-0 mt-0.5 relative">
+                  <svg className="w-full h-full drop-shadow-xs" viewBox="0 0 48 48">
+                    <path d="M10 14 L6 11 M24 6 L24 2 M38 14 L42 11 M8 26 L3 26 M40 26 L45 26" stroke="#FBBF24" strokeLinecap="round" strokeWidth="3" />
+                    <path d="M16 27 C12 23 12 16 17 11 C22 6 30 7 33 13 C35 17 33 24 29 27 C28 28 27 30 27 33 L19 33 C19 30 18 28 16 27 Z" fill="#FFCE38" />
+                    <circle cx="21" cy="19" fill="#78350F" r="1.5" />
+                    <circle cx="27" cy="19" fill="#78350F" r="1.5" />
+                    <path d="M22 23 Q 24 25 26 23" fill="none" stroke="#78350F" strokeLinecap="round" strokeWidth="1.5" />
+                    <circle cx="18" cy="21" fill="#FB923C" opacity="0.6" r="1.5" />
+                    <circle cx="30" cy="21" fill="#FB923C" opacity="0.6" r="1.5" />
+                  </svg>
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-xs sm:text-sm font-extrabold text-[#18385C] mb-0.5">Petunjuk Misi:</h3>
+                  <p className="text-xs text-[#2E5077] leading-relaxed font-semibold">
+                    {habit.description}
+                  </p>
+                </div>
+              </section>
 
               {/* Input Jam Bangun (Habit 1) atau Catatan (Habit 2-7) */}
               {habit.id === 1 ? (

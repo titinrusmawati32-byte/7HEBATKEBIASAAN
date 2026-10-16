@@ -503,8 +503,12 @@ export class StorageService {
     for (const siswa of dataSiswa) {
       const siswaPass = siswa.password || '';
       if (siswaPass && siswa.nisn.trim().toLowerCase() === u.toLowerCase() && siswaPass === p) {
-        // Sinkronkan entri jurnal dari cloud agar tidak ada isian yang hilang
-        this.syncHabitsForUser(siswa.nisn).catch(console.warn);
+        // Sinkronkan entri jurnal dari cloud agar tidak ada isian yang hilang sebelum masuk dashboard
+        try {
+          await this.syncHabitsForUser(siswa.nisn);
+        } catch (e) {
+          console.warn('Sync habits on login warning:', e);
+        }
         return { success: true, role: 'Siswa', username: siswa.nisn, nama: siswa.nama, kelas: siswa.kelas };
       }
     }
@@ -1260,12 +1264,13 @@ export class StorageService {
   static cekStatusMisiHariIni(username: string): number[] {
     this.initSheets();
     const today = getTodayDateString();
+    const cleanUser = (username || '').trim().toLowerCase();
     const misiSelesai: number[] = [];
 
     for (let i = 1; i <= 7; i++) {
       const raw = localStorage.getItem(STORAGE_KEYS.HABIT_PREFIX + i);
       const items: HabitItemData[] = raw ? JSON.parse(raw) : [];
-      const found = items.some(item => item.tanggal === today && item.username.trim() === username.trim());
+      const found = items.some(item => item.tanggal === today && (item.username || '').trim().toLowerCase() === cleanUser);
       if (found) {
         misiSelesai.push(i);
       }
@@ -1276,9 +1281,10 @@ export class StorageService {
 
   static getMisiDetailHariIni(username: string, habitId: number): HabitItemData | null {
     const today = getTodayDateString();
+    const cleanUser = (username || '').trim().toLowerCase();
     const raw = localStorage.getItem(STORAGE_KEYS.HABIT_PREFIX + habitId);
     const items: HabitItemData[] = raw ? JSON.parse(raw) : [];
-    return items.find(item => item.tanggal === today && item.username.trim() === username.trim()) || null;
+    return items.find(item => item.tanggal === today && (item.username || '').trim().toLowerCase() === cleanUser) || null;
   }
 
   // SIMPAN MISI: Optimistic UI (simpan instan di lokal & Firestore, lalu sync ke Google Apps Script di background)
@@ -1288,13 +1294,14 @@ export class StorageService {
     const time = getCurrentTimeString();
     const initialFoto = payload.fileBase64 || '';
     const key = STORAGE_KEYS.HABIT_PREFIX + payload.habitId;
+    const cleanUser = (payload.username || '').trim().toLowerCase();
 
     try {
       // 1. INSTANT LOCAL & FIRESTORE SAVE (< 0.05 detik, antarmuka langsung responsif)
       const raw = localStorage.getItem(key);
       const items: HabitItemData[] = raw ? JSON.parse(raw) : [];
 
-      const existingIdx = items.findIndex(item => item.tanggal === today && item.username.trim() === payload.username.trim());
+      const existingIdx = items.findIndex(item => item.tanggal === today && (item.username || '').trim().toLowerCase() === cleanUser);
       const docId = existingIdx !== -1 ? items[existingIdx].id : 'misi-' + Date.now();
       const newEntry: HabitItemData = {
         id: docId,
