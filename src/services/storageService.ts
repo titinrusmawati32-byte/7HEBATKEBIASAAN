@@ -272,6 +272,51 @@ export class StorageService {
     }
   }
 
+  /**
+   * Sinkronkan khusus seluruh entri kebiasaan untuk satu siswa dari Firestore
+   * Menjamin saat login di device baru, isian yang sudah dibuat tetap utuh dan tidak ter-reset
+   */
+  static async syncHabitsForUser(username: string): Promise<void> {
+    try {
+      const cleanUser = (username || '').trim().toLowerCase();
+      const remoteHabits = await FirebaseService.getAllHabitsFromFirestore();
+      if (!remoteHabits || remoteHabits.length === 0) return;
+
+      const userHabits = remoteHabits.filter(h => (h.username || '').trim().toLowerCase() === cleanUser);
+      if (userHabits.length === 0) return;
+
+      for (let i = 1; i <= 7; i++) {
+        const key = STORAGE_KEYS.HABIT_PREFIX + i;
+        const localRaw = localStorage.getItem(key);
+        const localItems: HabitItemData[] = localRaw ? JSON.parse(localRaw) : [];
+        const mergedMap = new Map<string, HabitItemData>();
+
+        localItems.forEach(item => {
+          const dedupeKey = `${(item.username || '').trim().toLowerCase()}___${item.tanggal}`;
+          mergedMap.set(dedupeKey, item);
+        });
+
+        userHabits.filter(h => Number(h.habitId) === i).forEach(item => {
+          const dedupeKey = `${(item.username || '').trim().toLowerCase()}___${item.tanggal}`;
+          mergedMap.set(dedupeKey, {
+            id: item.id,
+            tanggal: item.tanggal,
+            waktuSubmit: item.waktuSubmit,
+            username: item.username,
+            namaSiswa: item.namaSiswa,
+            kelas: item.kelas,
+            detail: item.detail,
+            fotoBukti: item.fotoBukti
+          });
+        });
+
+        localStorage.setItem(key, JSON.stringify(Array.from(mergedMap.values())));
+      }
+    } catch (e) {
+      console.warn('Sync habits for user warning:', e);
+    }
+  }
+
   static isConnectedToAppsScript(): boolean {
     return Boolean(this.getAppsScriptUrl().trim());
   }
@@ -458,11 +503,51 @@ export class StorageService {
     for (const siswa of dataSiswa) {
       const siswaPass = siswa.password || '';
       if (siswaPass && siswa.nisn.trim().toLowerCase() === u.toLowerCase() && siswaPass === p) {
+        // Sinkronkan entri jurnal dari cloud agar tidak ada isian yang hilang
+        this.syncHabitsForUser(siswa.nisn).catch(console.warn);
         return { success: true, role: 'Siswa', username: siswa.nisn, nama: siswa.nama, kelas: siswa.kelas };
       }
     }
 
-    // 2. REMOTE FALLBACK: Jika tidak ditemukan di lokal, cek ke Google Apps Script (misal siswa baru didaftarkan langsung di Spreadsheet)
+    // 2. FIRESTORE CLOUD FALLBACK: Sangat penting untuk multi-device sync saat login di perangkat berbeda
+    try {
+      // Cek akun Siswa di Cloud Firestore
+      const firestoreSiswa = await FirebaseService.getAllSiswa();
+      const foundSiswa = firestoreSiswa.find(s => s.nisn.trim().toLowerCase() === u.toLowerCase() && (s.password || '') === p);
+      if (foundSiswa) {
+        const localList = this.ambilDataSiswaRaw();
+        if (!localList.some(s => s.nisn.trim().toLowerCase() === u.toLowerCase())) {
+          localList.push(foundSiswa);
+          localStorage.setItem(STORAGE_KEYS.DATA_SISWA, JSON.stringify(localList));
+        }
+        // Tarik seluruh jurnal dan isian misi sebelumnya dari Firestore ke perangkat baru
+        await this.syncHabitsForUser(foundSiswa.nisn);
+        return { success: true, role: 'Siswa', username: foundSiswa.nisn, nama: foundSiswa.nama, kelas: foundSiswa.kelas };
+      }
+
+      // Cek akun Guru / Kepsek di Cloud Firestore
+      const firestoreGuru = await FirebaseService.getAllGuruFromFirestore();
+      const foundGuru = firestoreGuru.find(g => g.username.trim().toLowerCase() === u.toLowerCase() && (g.password || '') === p);
+      if (foundGuru) {
+        const localList = this.ambilDataGuruRaw();
+        if (!localList.some(g => g.username.trim().toLowerCase() === u.toLowerCase())) {
+          localList.push(foundGuru);
+          localStorage.setItem(STORAGE_KEYS.DATA_GURU, JSON.stringify(localList));
+        }
+        let role: UserRole = (foundGuru.kelas || '').toLowerCase() === 'kepsek' ? 'Kepala Sekolah' : 'Guru';
+        return { success: true, role, username: foundGuru.username, nama: foundGuru.nama, kelas: foundGuru.kelas };
+      }
+
+      // Cek akun Kepala Sekolah dari config utama di Firestore
+      const remoteConfig = await FirebaseService.getPengaturan();
+      if (remoteConfig && remoteConfig.usernameKepsek && remoteConfig.usernameKepsek.trim().toLowerCase() === u.toLowerCase() && remoteConfig.passwordKepsek === p) {
+        return { success: true, role: 'Kepala Sekolah', username: remoteConfig.usernameKepsek, nama: 'Kepala Sekolah', kelas: 'Kepsek' };
+      }
+    } catch (cloudErr) {
+      console.warn('Cek kredensial ke Firestore error:', cloudErr);
+    }
+
+    // 3. REMOTE FALLBACK: Jika tidak ditemukan di lokal/Firestore, cek ke Google Apps Script
     if (this.isConnectedToAppsScript()) {
       try {
         const remoteRes = await this.callAppsScript('validasiLogin', { username: u, password: p });
@@ -597,7 +682,7 @@ export class StorageService {
         if (remoteRes) {
           // Update local cache
           const list = this.ambilDataGuruRaw();
-          list.push({
+          const newG: GuruRecord = {
             id: 'guru-' + Date.now(),
             username: payload.username,
             nama: payload.nama,
@@ -608,8 +693,10 @@ export class StorageService {
             tempatCetak: 'Jakarta',
             tanggalCetak: getTodayDateString(),
             status: payload.status || 'Aktif'
-          });
+          };
+          list.push(newG);
           localStorage.setItem(STORAGE_KEYS.DATA_GURU, JSON.stringify(list));
+          FirebaseService.saveGuru(newG).catch(console.warn);
           return remoteRes;
         }
       } catch (err: any) {
@@ -617,13 +704,13 @@ export class StorageService {
       }
     }
 
-    // 2. Simpan lokal
+    // 2. Simpan lokal & Firestore
     try {
       const list = this.ambilDataGuruRaw();
       if (list.some(g => g.username === payload.username)) {
         return { success: false, message: "Username/NIP ini sudah digunakan!" };
       }
-      list.push({
+      const newG: GuruRecord = {
         id: 'guru-' + Date.now(),
         username: payload.username,
         nama: payload.nama,
@@ -634,8 +721,10 @@ export class StorageService {
         tempatCetak: 'Jakarta',
         tanggalCetak: getTodayDateString(),
         status: payload.status || 'Aktif'
-      });
+      };
+      list.push(newG);
       localStorage.setItem(STORAGE_KEYS.DATA_GURU, JSON.stringify(list));
+      FirebaseService.saveGuru(newG).catch(console.warn);
       return { success: true, message: "Akun Guru berhasil ditambahkan!" };
     } catch (e: any) {
       return { success: false, message: e.toString() };
@@ -664,6 +753,7 @@ export class StorageService {
           ...(payload.password ? { password: payload.password } : {})
         };
         localStorage.setItem(STORAGE_KEYS.DATA_GURU, JSON.stringify(list));
+        FirebaseService.saveGuru(list[index]).catch(console.warn);
         return { success: true, message: "Data guru berhasil diperbarui!" };
       } else {
         return this.simpanDataGuru(payload);
@@ -787,7 +877,7 @@ export class StorageService {
         const remoteRes = await this.callAppsScript('simpanDataSiswa', payload);
         if (remoteRes) {
           const list = this.ambilDataSiswaRaw();
-          list.push({
+          const newSiswa: SiswaRecord = {
             id: 'siswa-' + Date.now(),
             nisn: payload.nisn,
             nama: payload.nama,
@@ -795,8 +885,10 @@ export class StorageService {
             kelas: payload.kelas,
             tahunAjaran: payload.tahunAjaran,
             password: payload.password || ''
-          });
+          };
+          list.push(newSiswa);
           localStorage.setItem(STORAGE_KEYS.DATA_SISWA, JSON.stringify(list));
+          FirebaseService.saveSiswa(newSiswa).catch(console.warn);
           return remoteRes;
         }
       } catch (err) {
@@ -809,7 +901,7 @@ export class StorageService {
       if (list.some(s => s.nisn === payload.nisn)) {
         return { success: false, message: "NISN sudah terdaftar!" };
       }
-      list.push({
+      const newSiswa: SiswaRecord = {
         id: 'siswa-' + Date.now(),
         nisn: payload.nisn,
         nama: payload.nama,
@@ -817,8 +909,10 @@ export class StorageService {
         kelas: payload.kelas,
         tahunAjaran: payload.tahunAjaran,
         password: payload.password || ''
-      });
+      };
+      list.push(newSiswa);
       localStorage.setItem(STORAGE_KEYS.DATA_SISWA, JSON.stringify(list));
+      FirebaseService.saveSiswa(newSiswa).catch(console.warn);
       return { success: true, message: "Agen Siswa ditambahkan!" };
     } catch (e: any) {
       return { success: false, message: e.toString() };
@@ -853,7 +947,7 @@ export class StorageService {
         const password = row.Password || row.password || '';
 
         if (nisn && !existingNisn.has(nisn)) {
-          list.push({
+          const item: SiswaRecord = {
             id: 'siswa-' + Date.now() + '-' + countSuccess,
             nisn,
             nama,
@@ -861,7 +955,9 @@ export class StorageService {
             kelas,
             tahunAjaran: tahun,
             password
-          });
+          };
+          list.push(item);
+          FirebaseService.saveSiswa(item).catch(console.warn);
           existingNisn.add(nisn);
           countSuccess++;
         } else if (nisn) {

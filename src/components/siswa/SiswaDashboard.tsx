@@ -147,7 +147,12 @@ export const SiswaDashboard: React.FC<SiswaDashboardProps> = ({
     // 1. Tampilkan data dari memori lokal seketika (tanpa lag)
     loadData();
 
-    // 2. Sinkronkan dengan Cloud Firestore agar isian dari perangkat/HP lain langsung tampil
+    // 2. Tarik entri jurnal siswa dari Cloud Firestore agar device baru langsung sinkron
+    StorageService.syncHabitsForUser(session.username).then(() => {
+      loadData();
+    });
+
+    // 3. Sinkronkan juga konfigurasi cloud global
     StorageService.syncCloudConfig().then(() => {
       loadData();
     });

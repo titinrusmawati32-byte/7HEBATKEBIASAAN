@@ -152,7 +152,8 @@ export class FirebaseService {
         nama: siswa.nama,
         panggilan: siswa.panggilan || '',
         kelas: siswa.kelas,
-        tahunAjaran: siswa.tahunAjaran || ''
+        tahunAjaran: siswa.tahunAjaran || '',
+        password: siswa.password || ''
       }, { merge: true });
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, path);
@@ -169,11 +170,12 @@ export class FirebaseService {
       const list: SiswaRecord[] = [];
       snap.forEach(d => {
         const item = d.data() as SiswaRecord;
-        list.push({ ...item, id: d.id });
+        list.push({ ...item, id: d.id, password: item.password || '' });
       });
       return list;
     } catch (error) {
       handleFirestoreError(error, OperationType.LIST, path);
+      return [];
     }
   }
 
@@ -189,6 +191,7 @@ export class FirebaseService {
         username: guru.username,
         nama: guru.nama,
         kelas: guru.kelas,
+        password: guru.password || '',
         linkYoutube: guru.linkYoutube || '',
         kontenKuisJson: guru.kontenKuisJson || '{}',
         tempatCetak: guru.tempatCetak || '',
@@ -243,12 +246,23 @@ export class FirebaseService {
       const snap = await getDocs(collection(db, path));
       const list: GuruRecord[] = [];
       snap.forEach(d => {
-        list.push({ ...(d.data() as GuruRecord), id: d.id });
+        const item = d.data() as GuruRecord;
+        list.push({ ...item, id: d.id, password: item.password || '' });
       });
       return list;
     } catch (error) {
       handleFirestoreError(error, OperationType.LIST, path);
+      return [];
     }
+  }
+
+  /**
+   * Ambil entri kebiasaan khusus untuk satu username tertentu
+   */
+  static async getHabitsForUser(username: string): Promise<Array<HabitItemData & { habitId: number }>> {
+    const all = await this.getAllHabitsFromFirestore();
+    const cleanUser = (username || '').trim().toLowerCase();
+    return all.filter(h => (h.username || '').trim().toLowerCase() === cleanUser);
   }
 
   /**
