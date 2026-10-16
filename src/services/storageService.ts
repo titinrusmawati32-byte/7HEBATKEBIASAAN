@@ -130,46 +130,25 @@ export class StorageService {
     if (!localStorage.getItem(STORAGE_KEYS.PENGATURAN)) {
       localStorage.setItem(STORAGE_KEYS.PENGATURAN, JSON.stringify(DEFAULT_PENGATURAN));
     }
-    if (!localStorage.getItem(STORAGE_KEYS.DATA_GURU)) {
-      const initialGuru: GuruRecord[] = [
-        {
-          id: 'admin-default',
-          username: 'admin',
-          nama: 'Kepala Sekolah / Administrator',
-          kelas: 'Kepsek',
-          password: 'admin123',
-          linkYoutube: '',
-          kontenKuisJson: '{}',
-          tempatCetak: 'Jakarta',
-          tanggalCetak: getTodayDateString(),
-          status: 'Aktif'
+    // Bersihkan akun default lama jika pernah tersimpan di cache
+    try {
+      const storedGuruRaw = localStorage.getItem(STORAGE_KEYS.DATA_GURU);
+      if (storedGuruRaw) {
+        const teachers: GuruRecord[] = JSON.parse(storedGuruRaw);
+        const filteredTeachers = teachers.filter(g => g.id !== 'admin-default' && g.username.toLowerCase() !== 'admin');
+        if (filteredTeachers.length !== teachers.length) {
+          localStorage.setItem(STORAGE_KEYS.DATA_GURU, JSON.stringify(filteredTeachers));
         }
-      ];
-      localStorage.setItem(STORAGE_KEYS.DATA_GURU, JSON.stringify(initialGuru));
-    } else {
-      try {
-        const teachers: GuruRecord[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.DATA_GURU) || '[]');
-        if (!teachers.some(g => (g.kelas || '').toLowerCase() === 'kepsek' || g.username.toLowerCase() === 'admin')) {
-          teachers.push({
-            id: 'admin-default',
-            username: 'admin',
-            nama: 'Kepala Sekolah / Administrator',
-            kelas: 'Kepsek',
-            password: 'admin123',
-            linkYoutube: '',
-            kontenKuisJson: '{}',
-            tempatCetak: 'Jakarta',
-            tanggalCetak: getTodayDateString(),
-            status: 'Aktif'
-          });
-          localStorage.setItem(STORAGE_KEYS.DATA_GURU, JSON.stringify(teachers));
-        }
-      } catch (e) {
-        // ignore
       }
+    } catch {
+      // ignore
+    }
+
+    if (!localStorage.getItem(STORAGE_KEYS.DATA_GURU)) {
+      localStorage.setItem(STORAGE_KEYS.DATA_GURU, JSON.stringify([]));
     }
     if (!localStorage.getItem(STORAGE_KEYS.DATA_SISWA)) {
-      localStorage.setItem(STORAGE_KEYS.DATA_SISWA, JSON.stringify(DEFAULT_SISWA));
+      localStorage.setItem(STORAGE_KEYS.DATA_SISWA, JSON.stringify([]));
     }
 
     // Ensure all 7 habit tables exist as clean empty arrays
@@ -478,32 +457,102 @@ export class StorageService {
     this.initSheets();
 
     // 1. FAST-PATH: Cek kredensial lokal & cache terlebih dahulu (login instan < 0.05 detik)
-    if (u.toLowerCase() === 'admin' && p === 'admin123') {
-      const dataGuru = this.ambilDataGuruRaw();
-      const kepsek = dataGuru.find(g => (g.kelas || '').toLowerCase() === 'kepsek' || g.username.toLowerCase() === 'admin');
-      if (kepsek) {
-        return { success: true, role: 'Kepala Sekolah', username: kepsek.username, nama: kepsek.nama, kelas: kepsek.kelas };
+    // 1. OTORISASI UTAMA: Google Apps Script Web App (Database Google Sheets Resmi)
+    if (this.isConnectedToAppsScript()) {
+      try {
+        const remoteRes = await this.callAppsScript('validasiLogin', { username: u, password: p });
+        if (remoteRes && remoteRes.success && remoteRes.role) {
+          // Sinkronkan akun terautentikasi ke cache lokal & Firestore
+          if (remoteRes.role === 'Siswa') {
+            const list = this.ambilDataSiswaRaw();
+            const existingIdx = list.findIndex(s => s.nisn.toLowerCase() === (remoteRes.username || u).toLowerCase());
+            const updatedSiswa: SiswaRecord = {
+              id: existingIdx >= 0 ? list[existingIdx].id : 'siswa-' + Date.now(),
+              nisn: remoteRes.username || u,
+              nama: remoteRes.nama || u,
+              panggilan: '',
+              kelas: remoteRes.kelas || '-',
+              tahunAjaran: '2026/2027',
+              password: p
+            };
+            if (existingIdx >= 0) {
+              list[existingIdx] = updatedSiswa;
+            } else {
+              list.push(updatedSiswa);
+            }
+            localStorage.setItem(STORAGE_KEYS.DATA_SISWA, JSON.stringify(list));
+            FirebaseService.saveSiswa(updatedSiswa).catch(console.warn);
+
+            // Sinkronkan data habit misi agar tidak hilang saat login dari perangkat berbeda
+            try {
+              await this.syncHabitsForUser(updatedSiswa.nisn);
+            } catch (syncErr) {
+              console.warn('Sync habits error:', syncErr);
+            }
+          } else {
+            // Guru atau Kepala Sekolah
+            const guruList = this.ambilDataGuruRaw();
+            const existingIdx = guruList.findIndex(g => g.username.toLowerCase() === (remoteRes.username || u).toLowerCase());
+            const updatedGuru: GuruRecord = {
+              id: existingIdx >= 0 ? guruList[existingIdx].id : 'guru-' + Date.now(),
+              username: remoteRes.username || u,
+              nama: remoteRes.nama || u,
+              kelas: remoteRes.kelas || (remoteRes.role === 'Kepala Sekolah' ? 'Kepsek' : '-'),
+              password: p,
+              linkYoutube: '',
+              kontenKuisJson: '{}',
+              tempatCetak: 'Jakarta',
+              tanggalCetak: getTodayDateString(),
+              status: 'Aktif'
+            };
+            if (existingIdx >= 0) {
+              guruList[existingIdx] = updatedGuru;
+            } else {
+              guruList.push(updatedGuru);
+            }
+            localStorage.setItem(STORAGE_KEYS.DATA_GURU, JSON.stringify(guruList));
+            FirebaseService.saveGuru(updatedGuru).catch(console.warn);
+          }
+
+          return {
+            success: true,
+            role: remoteRes.role,
+            username: remoteRes.username || u,
+            nama: remoteRes.nama,
+            kelas: remoteRes.kelas
+          };
+        } else if (remoteRes && !remoteRes.success) {
+          // Google Apps Script menolak kredensial
+          return {
+            success: false,
+            message: remoteRes.message || 'ID atau Kata Sandi Salah! Akun tidak terdaftar di Google Spreadsheet.'
+          };
+        }
+      } catch (err: any) {
+        console.warn('Gagal validasi ke Apps Script:', err);
+        // Lanjutkan pengecekan ke cache lokal jika terjadi kendala jaringan sesaat
       }
-      return { success: true, role: 'Kepala Sekolah', username: 'admin', nama: 'Kepala Sekolah / Administrator', kelas: 'Kepsek' };
     }
 
+    // 2. CADANGAN KREDENSIAL: Cek akun yang telah tersinkronisasi dari Google Sheets/Cloud
+    // Cek akun Guru & Kepala Sekolah
     const dataGuru = this.ambilDataGuruRaw();
     for (const guru of dataGuru) {
       if (guru.username.trim().toLowerCase() === u.toLowerCase() && guru.password === p) {
         let role: UserRole = 'Guru';
         let kelas = guru.kelas;
-        if (kelas.toLowerCase() === 'kepsek') {
+        if ((kelas || '').toLowerCase() === 'kepsek') {
           role = 'Kepala Sekolah';
         }
         return { success: true, role, username: guru.username, nama: guru.nama, kelas };
       }
     }
 
+    // Cek akun Siswa
     const dataSiswa = this.ambilDataSiswaRaw();
     for (const siswa of dataSiswa) {
       const siswaPass = siswa.password || '';
       if (siswaPass && siswa.nisn.trim().toLowerCase() === u.toLowerCase() && siswaPass === p) {
-        // Sinkronkan entri jurnal dari cloud agar tidak ada isian yang hilang sebelum masuk dashboard
         try {
           await this.syncHabitsForUser(siswa.nisn);
         } catch (e) {
@@ -513,75 +562,33 @@ export class StorageService {
       }
     }
 
-    // 2. FIRESTORE CLOUD FALLBACK: Sangat penting untuk multi-device sync saat login di perangkat berbeda
+    // 3. Cadangan Cloud Firestore
     try {
-      // Cek akun Siswa di Cloud Firestore
-      const firestoreSiswa = await FirebaseService.getAllSiswa();
-      const foundSiswa = firestoreSiswa.find(s => s.nisn.trim().toLowerCase() === u.toLowerCase() && (s.password || '') === p);
-      if (foundSiswa) {
-        const localList = this.ambilDataSiswaRaw();
-        if (!localList.some(s => s.nisn.trim().toLowerCase() === u.toLowerCase())) {
-          localList.push(foundSiswa);
-          localStorage.setItem(STORAGE_KEYS.DATA_SISWA, JSON.stringify(localList));
-        }
-        // Tarik seluruh jurnal dan isian misi sebelumnya dari Firestore ke perangkat baru
-        await this.syncHabitsForUser(foundSiswa.nisn);
-        return { success: true, role: 'Siswa', username: foundSiswa.nisn, nama: foundSiswa.nama, kelas: foundSiswa.kelas };
-      }
-
-      // Cek akun Guru / Kepsek di Cloud Firestore
       const firestoreGuru = await FirebaseService.getAllGuruFromFirestore();
       const foundGuru = firestoreGuru.find(g => g.username.trim().toLowerCase() === u.toLowerCase() && (g.password || '') === p);
       if (foundGuru) {
-        const localList = this.ambilDataGuruRaw();
-        if (!localList.some(g => g.username.trim().toLowerCase() === u.toLowerCase())) {
-          localList.push(foundGuru);
-          localStorage.setItem(STORAGE_KEYS.DATA_GURU, JSON.stringify(localList));
-        }
         let role: UserRole = (foundGuru.kelas || '').toLowerCase() === 'kepsek' ? 'Kepala Sekolah' : 'Guru';
         return { success: true, role, username: foundGuru.username, nama: foundGuru.nama, kelas: foundGuru.kelas };
       }
 
-      // Cek akun Kepala Sekolah dari config utama di Firestore
-      const remoteConfig = await FirebaseService.getPengaturan();
-      if (remoteConfig && remoteConfig.usernameKepsek && remoteConfig.usernameKepsek.trim().toLowerCase() === u.toLowerCase() && remoteConfig.passwordKepsek === p) {
-        return { success: true, role: 'Kepala Sekolah', username: remoteConfig.usernameKepsek, nama: 'Kepala Sekolah', kelas: 'Kepsek' };
+      const firestoreSiswa = await FirebaseService.getAllSiswa();
+      const foundSiswa = firestoreSiswa.find(s => s.nisn.trim().toLowerCase() === u.toLowerCase() && (s.password || '') === p);
+      if (foundSiswa) {
+        await this.syncHabitsForUser(foundSiswa.nisn);
+        return { success: true, role: 'Siswa', username: foundSiswa.nisn, nama: foundSiswa.nama, kelas: foundSiswa.kelas };
       }
     } catch (cloudErr) {
       console.warn('Cek kredensial ke Firestore error:', cloudErr);
     }
 
-    // 3. REMOTE FALLBACK: Jika tidak ditemukan di lokal/Firestore, cek ke Google Apps Script
     if (this.isConnectedToAppsScript()) {
-      try {
-        const remoteRes = await this.callAppsScript('validasiLogin', { username: u, password: p });
-        if (remoteRes && remoteRes.success) {
-          // Sinkronkan ke cache lokal agar login berikutnya instan
-          if (remoteRes.role === 'Siswa') {
-            const list = this.ambilDataSiswaRaw();
-            if (!list.some(s => s.nisn === remoteRes.username)) {
-              list.push({
-                id: 'siswa-' + Date.now(),
-                nisn: remoteRes.username || u,
-                nama: remoteRes.nama || u,
-                panggilan: '',
-                kelas: remoteRes.kelas || '-',
-                tahunAjaran: '2026/2027',
-                password: p
-              });
-              localStorage.setItem(STORAGE_KEYS.DATA_SISWA, JSON.stringify(list));
-            }
-          }
-          return remoteRes;
-        } else if (remoteRes && remoteRes.message && !remoteRes.success) {
-          return remoteRes;
-        }
-      } catch (err) {
-        console.warn('Gagal validasi remote via Apps Script:', err);
-      }
+      return { success: false, message: "ID atau Kata Sandi Salah! Akun tidak terdaftar di Google Apps Script / Spreadsheet." };
     }
 
-    return { success: false, message: "ID atau Kata Sandi Salah!" };
+    return {
+      success: false,
+      message: "Akun tidak ditemukan. Pastikan Web App Google Apps Script telah terhubung dan akun Anda terdaftar di Spreadsheet."
+    };
   }
 
   /**
