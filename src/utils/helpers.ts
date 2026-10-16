@@ -28,11 +28,11 @@ export function fileToBase64(file: File): Promise<string> {
     reader.onload = (event) => {
       const img = new Image();
       img.onload = () => {
-        // Resize image to max width/height 1000px to keep storage light and snappy
+        // Resize image to max width/height 720px to keep storage light and ultra-snappy
         const canvas = document.createElement('canvas');
         let width = img.width;
         let height = img.height;
-        const maxDim = 900;
+        const maxDim = 720;
 
         if (width > height && width > maxDim) {
           height = Math.round((height * maxDim) / width);
@@ -47,7 +47,8 @@ export function fileToBase64(file: File): Promise<string> {
         const ctx = canvas.getContext('2d');
         if (ctx) {
           ctx.drawImage(img, 0, 0, width, height);
-          resolve(canvas.toDataURL('image/jpeg', 0.8));
+          // Compress to lightweight JPEG (~80-120KB) for instant network transfer
+          resolve(canvas.toDataURL('image/jpeg', 0.65));
         } else {
           resolve(event.target?.result as string);
         }

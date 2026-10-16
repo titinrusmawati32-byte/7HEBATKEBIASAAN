@@ -239,35 +239,50 @@ export class StorageService {
       throw new Error('URL Google Apps Script belum dikonfigurasi.');
     }
 
-    // Coba via server proxy (/api/gas-proxy) terlebih dahulu untuk bypass CORS dan redirect 302
+    // Timeout guard 15 detik agar aplikasi tidak membeku
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+    // 1. Coba via server proxy (/api/gas-proxy) terlebih dahulu untuk bypass CORS dan redirect 302
     try {
       const response = await fetch('/api/gas-proxy', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ gasUrl: url, action, payload })
+        body: JSON.stringify({ gasUrl: url, action, payload }),
+        signal: controller.signal
       });
 
+      clearTimeout(timeoutId);
       if (response.ok) {
         const data = await response.json();
         return data;
       }
     } catch (proxyErr) {
+      clearTimeout(timeoutId);
       console.warn('Proxy server tidak merespons, mencoba koneksi langsung:', proxyErr);
     }
 
-    // Direct fallback if proxy is unavailable
-    const directResponse = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'text/plain;charset=utf-8'
-      },
-      body: JSON.stringify({ action, payload }),
-      redirect: 'follow'
-    });
-
-    return await directResponse.json();
+    // 2. Direct fallback jika proxy tidak merespons (dengan timeout 10 detik)
+    try {
+      const directController = new AbortController();
+      const directTimeoutId = setTimeout(() => directController.abort(), 10000);
+      const directResponse = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'text/plain;charset=utf-8'
+        },
+        body: JSON.stringify({ action, payload }),
+        redirect: 'follow',
+        signal: directController.signal
+      });
+      clearTimeout(directTimeoutId);
+      return await directResponse.json();
+    } catch (directErr) {
+      console.warn('Koneksi langsung ke Apps Script timeout atau gagal:', directErr);
+      return null;
+    }
   }
 
   // Test Connection to remote Apps Script Web App
@@ -371,24 +386,9 @@ export class StorageService {
     const u = username.trim();
     const p = password.trim();
 
-    // 1. Coba hubungi Google Apps Script terlebih dahulu jika URL tersedia
-    if (this.isConnectedToAppsScript()) {
-      try {
-        const remoteRes = await this.callAppsScript('validasiLogin', { username: u, password: p });
-        if (remoteRes && remoteRes.success) {
-          return remoteRes;
-        } else if (remoteRes && remoteRes.message && !remoteRes.success) {
-          // Kredensial memang salah di Google Spreadsheet
-          return remoteRes;
-        }
-      } catch (err) {
-        console.warn('Gagal validasi remote via Apps Script, beralih ke verifikasi lokal:', err);
-      }
-    }
-
-    // 2. Fallback verifikasi lokal
     this.initSheets();
 
+    // 1. FAST-PATH: Cek kredensial lokal & cache terlebih dahulu (login instan < 0.05 detik)
     if (u.toLowerCase() === 'admin' && p === 'admin123') {
       const dataGuru = this.ambilDataGuruRaw();
       const kepsek = dataGuru.find(g => (g.kelas || '').toLowerCase() === 'kepsek' || g.username.toLowerCase() === 'admin');
@@ -400,21 +400,51 @@ export class StorageService {
 
     const dataGuru = this.ambilDataGuruRaw();
     for (const guru of dataGuru) {
-      if (guru.username === u && guru.password === p) {
+      if (guru.username.trim().toLowerCase() === u.toLowerCase() && guru.password === p) {
         let role: UserRole = 'Guru';
         let kelas = guru.kelas;
         if (kelas.toLowerCase() === 'kepsek') {
           role = 'Kepala Sekolah';
         }
-        return { success: true, role, username: u, nama: guru.nama, kelas };
+        return { success: true, role, username: guru.username, nama: guru.nama, kelas };
       }
     }
 
     const dataSiswa = this.ambilDataSiswaRaw();
     for (const siswa of dataSiswa) {
       const siswaPass = siswa.password || '';
-      if (siswaPass && siswa.nisn === u && siswaPass === p) {
-        return { success: true, role: 'Siswa', username: u, nama: siswa.nama, kelas: siswa.kelas };
+      if (siswaPass && siswa.nisn.trim().toLowerCase() === u.toLowerCase() && siswaPass === p) {
+        return { success: true, role: 'Siswa', username: siswa.nisn, nama: siswa.nama, kelas: siswa.kelas };
+      }
+    }
+
+    // 2. REMOTE FALLBACK: Jika tidak ditemukan di lokal, cek ke Google Apps Script (misal siswa baru didaftarkan langsung di Spreadsheet)
+    if (this.isConnectedToAppsScript()) {
+      try {
+        const remoteRes = await this.callAppsScript('validasiLogin', { username: u, password: p });
+        if (remoteRes && remoteRes.success) {
+          // Sinkronkan ke cache lokal agar login berikutnya instan
+          if (remoteRes.role === 'Siswa') {
+            const list = this.ambilDataSiswaRaw();
+            if (!list.some(s => s.nisn === remoteRes.username)) {
+              list.push({
+                id: 'siswa-' + Date.now(),
+                nisn: remoteRes.username || u,
+                nama: remoteRes.nama || u,
+                panggilan: '',
+                kelas: remoteRes.kelas || '-',
+                tahunAjaran: '2026/2027',
+                password: p
+              });
+              localStorage.setItem(STORAGE_KEYS.DATA_SISWA, JSON.stringify(list));
+            }
+          }
+          return remoteRes;
+        } else if (remoteRes && remoteRes.message && !remoteRes.success) {
+          return remoteRes;
+        }
+      } catch (err) {
+        console.warn('Gagal validasi remote via Apps Script:', err);
       }
     }
 
@@ -1111,43 +1141,30 @@ export class StorageService {
     return items.find(item => item.tanggal === today && item.username.trim() === username.trim()) || null;
   }
 
-  // SIMPAN MISI: Kirim langsung ke Google Apps Script (Spreadsheet & Drive)
+  // SIMPAN MISI: Optimistic UI (simpan instan di lokal & Firestore, lalu sync ke Google Apps Script di background)
   static async simpanMisiIndividu(payload: { habitId: number; username: string; nama: string; kelas: string; detail: string; fileBase64?: string }): Promise<{ success: boolean; message?: string; fotoUrl?: string }> {
     this.initSheets();
     const today = getTodayDateString();
     const time = getCurrentTimeString();
-    let fotoResultUrl = payload.fileBase64 || '';
+    const initialFoto = payload.fileBase64 || '';
+    const key = STORAGE_KEYS.HABIT_PREFIX + payload.habitId;
 
-    // 1. Kirim ke Google Apps Script Web App jika terhubung
-    if (this.isConnectedToAppsScript()) {
-      try {
-        const remoteRes = await this.callAppsScript('simpanMisiIndividu', payload);
-        if (remoteRes && remoteRes.success) {
-          if (remoteRes.fotoUrl) {
-            fotoResultUrl = remoteRes.fotoUrl; // Gunakan URL Google Drive dari Apps Script
-          }
-        }
-      } catch (err) {
-        console.warn('Gagal kirim misi ke Apps Script, disimpan di database lokal:', err);
-      }
-    }
-
-    // 2. Simpan juga ke cache lokal agar tampilan selalu instan
     try {
-      const key = STORAGE_KEYS.HABIT_PREFIX + payload.habitId;
+      // 1. INSTANT LOCAL & FIRESTORE SAVE (< 0.05 detik, antarmuka langsung responsif)
       const raw = localStorage.getItem(key);
       const items: HabitItemData[] = raw ? JSON.parse(raw) : [];
 
       const existingIdx = items.findIndex(item => item.tanggal === today && item.username.trim() === payload.username.trim());
+      const docId = existingIdx !== -1 ? items[existingIdx].id : 'misi-' + Date.now();
       const newEntry: HabitItemData = {
-        id: existingIdx !== -1 ? items[existingIdx].id : 'misi-' + Date.now(),
+        id: docId,
         tanggal: today,
         waktuSubmit: time,
         username: payload.username,
         namaSiswa: payload.nama,
         kelas: payload.kelas,
         detail: payload.detail,
-        fotoBukti: fotoResultUrl
+        fotoBukti: initialFoto
       };
 
       if (existingIdx !== -1) {
@@ -1163,11 +1180,31 @@ export class StorageService {
         console.warn('Firebase sync warning:', e);
       });
 
+      // 2. BACKGROUND SYNC KE GOOGLE APPS SCRIPT (Non-blocking: berjalan di latar belakang tanpa menahan layar siswa)
+      if (this.isConnectedToAppsScript()) {
+        this.callAppsScript('simpanMisiIndividu', payload).then(remoteRes => {
+          if (remoteRes && remoteRes.success && remoteRes.fotoUrl) {
+            // Perbarui foto bukti lokal dengan link permanen Google Drive dari Apps Script
+            const currentRaw = localStorage.getItem(key);
+            if (currentRaw) {
+              const currentItems: HabitItemData[] = JSON.parse(currentRaw);
+              const idx = currentItems.findIndex(item => item.id === docId);
+              if (idx !== -1) {
+                currentItems[idx].fotoBukti = remoteRes.fotoUrl;
+                localStorage.setItem(key, JSON.stringify(currentItems));
+                FirebaseService.saveHabitEntry(payload.habitId, currentItems[idx]).catch(console.warn);
+              }
+            }
+          }
+        }).catch(err => {
+          console.warn('Background sync ke Apps Script tertunda:', err);
+        });
+      }
+
       return {
         success: true,
-        message: this.isConnectedToAppsScript()
-          ? 'Misi berhasil terkirim dan tercatat di Google Sheets & Drive Anda!'
-          : 'Misi berhasil dicatat di database lokal & cloud!'
+        message: 'Misi berhasil dicatat dan sedang disinkronkan ke Google Sheets & Drive!',
+        fotoUrl: initialFoto
       };
     } catch (error: any) {
       return { success: false, message: error.toString() };
